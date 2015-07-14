@@ -1,0 +1,112 @@
+<!doctype html>
+<html ng-app="mqttChat">
+<head>
+  <title>My Angular App</title>
+  <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.3.14/angular.min.js"></script>
+  <script src="http://git.eclipse.org/c/paho/org.eclipse.paho.mqtt.javascript.git/plain/src/mqttws31.js"></script>
+  <script type="text/javascript">
+    var app = angular.module('mqttChat', []);
+
+    app.controller('FooController', function ($scope, ChatClient) {
+      var client;
+
+      $scope.messages = [];
+
+      $scope.login = function (name) {
+        client = new ChatClient(name);
+        client.receive(function (message) {
+          console.log('message arrived: ' + message.payloadString);
+          $scope.messages.push(JSON.parse(message.payloadString));
+        });
+        client.disconnected(function (errorMessage) {
+          console.log("onConnectionLost:" + errorMessage);
+          client = null;
+        });
+      };
+
+      $scope.loggedIn = function () {
+        return angular.isObject(client);
+      };
+
+      $scope.submit = function (message) {
+        client.send(message);
+      };
+    });
+
+    app.factory('ChatClient', function ($rootScope) {
+      var hostname = 'lite.mqtt.shiguredo.jp';
+      var port = 80;
+      var topic = 'wiro34@github/helloworld/chat';
+
+      return function (name) {
+        var client = new Paho.MQTT.Client(hostname, port, name);
+
+        client.connect({
+          willMessage: createMessage('SYSTEM', name + ' さんがログアウトしました。'),
+          onSuccess: function onConnect() {
+            console.log('connected');
+            client.subscribe(topic);
+            client.send(createMessage('SYSTEM', name + ' さんがログインしました。'));
+          }
+        });
+
+        this.send = function (message) {
+          client.send(createMessage(name, message));
+        };
+
+        this.receive = function (callback) {
+          client.onMessageArrived = function (message) {
+            callback(message);
+
+            if (!$rootScope.$$phase) {
+              $rootScope.$digest();
+            }
+          };
+        };
+
+        this.disconnected = function (callback) {
+          client.onConnectionLost = function (responseObject) {
+            if (responseObject.errorCode !== 0) {
+              callback(responseObject.errorMessage)
+            }
+            if (!$rootScope.$$phase) {
+              $rootScope.$digest();
+            }
+          };
+        };
+
+        function createMessage(name, message) {
+          var message = new Paho.MQTT.Message(JSON.stringify({
+            name: name,
+            message: message,
+            time: new Date()
+          }));
+          message.destinationName = topic;
+          return message;
+        }
+      };
+    });
+  </script>
+</head>
+<body>
+<div ng-controller="FooController">
+  <div ng-switch="loggedIn()">
+    <div ng-switch-when="true">
+      <div class="messages">
+        <div ng-repeat="message in messages">
+          {{message.name}}> {{message.message}} ({{message.time}})
+          <hr>
+        </div>
+      </div>
+      <input type="text" ng-model="message">
+      <button type="button" ng-click="submit(message); message = '';">送信</button>
+    </div>
+    <div ng-switch-when="false">
+      お名前：<input type="text" ng-model="name">
+      <button type="button" ng-click="login(name)">ログイン</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>
+
